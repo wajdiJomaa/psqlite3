@@ -13,64 +13,37 @@ and more.
 **Note**: If you're viewing this repo on GitHub, head over to
 [codecrafters.io](https://codecrafters.io) to try the challenge.
 
-# Passing the first stage
+# Current Implementation
 
-The entry point for your SQLite implementation is in `app/main.py`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
+This repository currently implements a subset of an SQLite parser capable of reading basic database structure and record formats. The following features are currently implemented in `app/main.py`:
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
-```
+## 1. Database Header Parsing
+- Extracts the **database page size** from the SQLite file header.
 
-Time to move on to the next stage!
+## 2. Page Header Parsing
+- Reads the page header of the root B-tree page to extract the **number of cells** (which corresponds to the number of tables/indexes in the `sqlite_schema`).
 
-# Stage 2 & beyond
+## 3. SQLite Varint Decoding
+- Implements custom logic to correctly decode SQLite's variable-length integers (varints), which use 7-bit payloads per byte (and 8 bits for the 9th byte).
 
-Note: This section is for stages 2 and beyond.
+## 4. B-Tree Leaf Cell Parsing
+- Reads cell pointers from the page header.
+- Navigates to B-tree leaf cells to extract:
+  - **Payload Size**
+  - **Row ID**
 
-1. Ensure you have `uv` installed locally
-1. Run `./your_program.sh` to run your program, which is implemented in
-   `app/main.py`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+## 5. Record Format Parsing
+- Parses the SQLite record format header to determine column data types.
+- Supports decoding the following SQLite serial types into Python structures:
+  - `NULL`
+  - Integer types: 8-bit, 16-bit, 24-bit, 32-bit, 48-bit, 64-bit (`BIT8INT` to `BIT64INT`)
+  - Float type: 64-bit IEEE 754 float (`BIT64FLOAT`) using the `struct` module
+  - Text: `STRING` (UTF-8 encoded)
+  - Raw binary: `BLOB`
+- Dynamically casts byte sequences into appropriate Python primitives (`int`, `float`, `str`, `bytes`) based on the serial type.
 
-# Sample Databases
-
-To make it easy to test queries locally, we've added a sample database in the
-root of this repository: `sample.db`.
-
-This contains two tables: `apples` & `oranges`. You can use this to test your
-implementation for the first 6 stages.
-
-You can explore this database by running queries against it like this:
-
-```sh
-$ sqlite3 sample.db "select id, name from apples"
-1|Granny Smith
-2|Fuji
-3|Honeycrisp
-4|Golden Delicious
-```
-
-There are two other databases that you can use:
-
-1. `superheroes.db`:
-   - This is a small version of the test database used in the table-scan stage.
-   - It contains one table: `superheroes`.
-   - It is ~1MB in size.
-1. `companies.db`:
-   - This is a small version of the test database used in the index-scan stage.
-   - It contains one table: `companies`, and one index: `idx_companies_country`
-   - It is ~7MB in size.
-
-These aren't included in the repository because they're large in size. You can
-download them by running this script:
-
-```sh
-./download_sample_databases.sh
-```
-
-If the script doesn't work for some reason, you can download the databases
-directly from
-[codecrafters-io/sample-sqlite-databases](https://github.com/codecrafters-io/sample-sqlite-databases).
+## Supported Commands
+- `.dbinfo`: When run against a database file (e.g., `python3 -m app.main sample.db .dbinfo`), it outputs:
+  - The database page size.
+  - The decoded column values of a record from the `sqlite_schema` table.
+  - The total number of tables (cells) in the database.
