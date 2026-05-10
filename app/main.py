@@ -109,6 +109,60 @@ class column_value:
         return f"column_value(col_type={self.col_type}, value={self.value})\n"
 
 
+def read_leaf_page(database_file, cols=[]):
+    if len(cols) == 0:
+        return []
+
+    # page header number cells
+    database_file.seek(3, os.SEEK_CUR)
+    nb_cells = int.from_bytes(database_file.read(2), byteorder="big")
+
+    # go to the end of page header
+    database_file.seek(3, os.SEEK_CUR)
+
+    # collect cell pointers
+    cell_pointers = []
+    for cell in range(nb_cells):
+        cell_pointers.append(int.from_bytes(database_file.read(2), byteorder="big"))
+
+    all_values = []
+
+    for cp in cell_pointers:
+        database_file.seek(cp)
+
+        payload_size = read_var_int(database_file)
+        rowid = read_var_int(database_file)
+
+        start_payload_pointer = database_file.tell()
+        payload_header_size = read_var_int(database_file)
+
+        column_types = []
+
+        while database_file.tell() < start_payload_pointer + payload_header_size:
+            column_type = read_var_int(database_file)
+            column_types.append(get_column_type_info(column_type))
+
+        column_values = []
+
+        cols_idx = 0
+        idx = 0
+        for column_type in column_types:
+            if cols[cols_idx] == idx:
+                value = cast_bytes_map[column_type.col_type](
+                    database_file.read(column_type.size)
+                )
+                column_values.append(column_value(column_type.col_type, value))
+                cols_idx += 1
+                if cols_idx == len(cols):
+                    break
+            else:
+                database_file.seek(column_type.size, os.SEEK_CUR)
+            idx += 1
+        all_values.append(column_values)
+
+    return all_values
+
+
 def main():
     database_file_path = sys.argv[1]
     command = sys.argv[2]
@@ -124,6 +178,7 @@ def main():
 
             # skip remaining of file header
             database_file.seek(82, os.SEEK_CUR)
+            print(database_file.tell())
 
             # page header number cells
             database_file.seek(3, os.SEEK_CUR)
@@ -132,36 +187,16 @@ def main():
             # go to the end of page header
             database_file.seek(3, os.SEEK_CUR)
 
-            # collect cell pointers
-            cell_pointers = []
-            for cell in range(nb_cells):
-                cell_pointers.append(
-                    int.from_bytes(database_file.read(2), byteorder="big")
-                )
-
-            database_file.seek(cell_pointers[2])
-            payload_size = read_var_int(database_file)
-            rowid = read_var_int(database_file)
-
-            start_payload_pointer = database_file.tell()
-            payload_header_size = read_var_int(database_file)
-
-            column_types = []
-
-            while database_file.tell() < start_payload_pointer + payload_header_size:
-                column_type = read_var_int(database_file)
-                column_types.append(get_column_type_info(column_type))
-
-            column_values = []
-
-            for column_type in column_types:
-                value = cast_bytes_map[column_type.col_type](
-                    database_file.read(column_type.size)
-                )
-                column_values.append(column_value(column_type.col_type, value))
-
-            print(column_values)
             print(f"number of tables: {nb_cells}")
+
+    elif command == ".tables":
+        with open(database_file_path, "rb") as database_file:
+            database_file.seek(100)
+            results = read_leaf_page(database_file, [0, 2])
+            for res in results:
+                if res[0].value == "table" and res[1].value != "sqlite_sequence":
+                    print(res[1].value, end=" ")
+            print("")
     else:
         print(f"Invalid command: {command}")
 
